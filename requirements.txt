@@ -12,3 +12,8 @@ requests
 matplotlib
 seaborn
 scipy
+mlflow
+beautifulsoup4 
+tldextract 
+dnspython 
+python-whois
