@@ -1,193 +1,202 @@
-import sys
-from pathlib import Path
+'''
+URL
+ ↓
+URL Parser + DNS + SSL + HTML Fetch
+ ↓
+Feature Extraction Functions
+ ↓
+30 Feature Dict (-1 / 0 / 1)
+ ↓
+ML Model
+'''
+import socket
+import ssl
+import requests
+import dns.resolver
+import whois
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-import joblib
-import numpy as np
-import pandas as pd
-from pathlib import Path
-from typing import Dict, Any, Optional
-
-from src.config_loader import load_config
-
-
-# =========================================================
-# PATHS + LOAD ARTIFACTS (config-driven)
-# =========================================================
-
-CONFIG = load_config()
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-ARTIFACTS_DIR = PROJECT_ROOT / CONFIG["artifacts"]["directory"]
-
-SCALER_PATH = ARTIFACTS_DIR / CONFIG["artifacts"]["scaler_filename"]
-XGB_MODEL_PATH = ARTIFACTS_DIR / CONFIG["artifacts"]["xgb_model_filename"]
-ANN_MODEL_PATH = ARTIFACTS_DIR / CONFIG["artifacts"]["ann_model_filename"]
+from bs4 import BeautifulSoup
+from urllib.parse import urlparse
+from datetime import datetime
 
 
-def _safe_load(path: Path):
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Artifact not found: {path}\n"
-            f"Fix: Run training pipeline first so artifacts get created."
-        )
-    return joblib.load(path)
-
-
-SCALER = _safe_load(SCALER_PATH)
-XGB_MODEL = _safe_load(XGB_MODEL_PATH)
-ANN_MODEL = _safe_load(ANN_MODEL_PATH)
-
-
-# =========================================================
-# HELPERS
-# =========================================================
-
-def decode_label(pred: int) -> str:
-    return "Legit Website" if int(pred) == 1 else "Phishing Website"
-
-
-def _get_expected_columns_from_scaler() -> Optional[list]:
+class FeatureExtractor:
     """
-    Try best to recover expected feature columns.
-    Best case: scaler was fit on a DataFrame and retains feature names.
-    Otherwise returns None.
+    Extract phishing-related features from a URL in real-time.
+    Output values follow dataset convention:
+    1 = suspicious / phishing indicator
+    0 = legitimate
+    -1 = unknown / not available in real-time
     """
-    if hasattr(SCALER, "feature_names_in_"):
-        return list(SCALER.feature_names_in_)
-    return None
 
+    def __init__(self, timeout: int = 5):
+        self.timeout = timeout
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (PhishGuard-AI)"
+        }
 
-EXPECTED_COLUMNS = _get_expected_columns_from_scaler()
+    # -------------------------
+    # URL LEVEL FEATURES
+    # -------------------------
 
+    def having_ip_address(self, url: str) -> int:
+        try:
+            socket.inet_aton(urlparse(url).hostname)
+            return 1
+        except:
+            return 0
 
-def validate_and_build_df(input_dict: Dict[str, Any]) -> pd.DataFrame:
-    """
-    Convert dict -> DataFrame and ensure it matches training feature columns.
+    def url_length(self, url: str) -> int:
+        return 1 if len(url) >= 75 else 0
 
-    - If scaler has feature_names_in_: reorder & validate strictly
-    - Else: just create DataFrame from dict (assumes correct order/keys provided)
-    """
-    if not isinstance(input_dict, dict):
-        raise TypeError("input_dict must be a Python dict of feature_name -> value.")
+    def shortening_service(self, url: str) -> int:
+        shorteners = ["bit.ly", "tinyurl", "goo.gl", "t.co"]
+        return 1 if any(s in url for s in shorteners) else 0
 
-    df = pd.DataFrame([input_dict])
+    def having_at_symbol(self, url: str) -> int:
+        return 1 if "@" in url else 0
 
-    if EXPECTED_COLUMNS is not None:
-        missing = [c for c in EXPECTED_COLUMNS if c not in df.columns]
-        extra = [c for c in df.columns if c not in EXPECTED_COLUMNS]
+    def double_slash_redirecting(self, url: str) -> int:
+        return 1 if url.rfind("//") > 7 else 0
 
-        if missing:
-            raise ValueError(
-                f"Missing required features: {missing}\n"
-                f"Expected columns (total {len(EXPECTED_COLUMNS)}): {EXPECTED_COLUMNS}"
+    def prefix_suffix(self, domain: str) -> int:
+        return 1 if "-" in domain else 0
+
+    def having_sub_domain(self, domain: str) -> int:
+        return 1 if domain.count(".") > 1 else 0
+
+    # -------------------------
+    # DNS / SSL / DOMAIN
+    # -------------------------
+
+    def dns_record(self, domain: str) -> int:
+        try:
+            dns.resolver.resolve(domain, "A")
+            return 1
+        except:
+            return 0
+
+    def ssl_final_state(self, url: str) -> int:
+        try:
+            hostname = urlparse(url).hostname
+            context = ssl.create_default_context()
+            with context.wrap_socket(
+                socket.socket(), server_hostname=hostname
+            ) as s:
+                s.settimeout(3)
+                s.connect((hostname, 443))
+            return 1
+        except:
+            return 0
+
+    def domain_registration_length(self, domain: str) -> int:
+        try:
+            w = whois.whois(domain)
+            if w.creation_date and w.expiration_date:
+                days = (w.expiration_date - w.creation_date).days
+                return 1 if days >= 365 else 0
+        except:
+            pass
+        return 0
+
+    def age_of_domain(self, domain: str) -> int:
+        try:
+            w = whois.whois(domain)
+            if w.creation_date:
+                days = (datetime.now() - w.creation_date).days
+                return 1 if days >= 180 else 0
+        except:
+            pass
+        return 0
+
+    # -------------------------
+    # HTML BASED FEATURES
+    # -------------------------
+
+    def fetch_html(self, url: str) -> str:
+        try:
+            r = requests.get(
+                url,
+                timeout=self.timeout,
+                headers=self.headers,
+                allow_redirects=True,
             )
+            return r.text
+        except:
+            return ""
 
-        # We allow extra columns but drop them to be safe
-        if extra:
-            df = df.drop(columns=extra)
+    def iframe_present(self, html: str) -> int:
+        soup = BeautifulSoup(html, "html.parser")
+        return 1 if soup.find("iframe") else 0
 
-        # Reorder exactly as training
-        df = df[EXPECTED_COLUMNS]
+    def submitting_to_email(self, html: str) -> int:
+        soup = BeautifulSoup(html, "html.parser")
+        for f in soup.find_all("form"):
+            action = f.get("action", "")
+            if "mailto:" in action:
+                return 1
+        return 0
 
-    return df
+    def abnormal_url(self, domain: str, html: str) -> int:
+        return 1 if domain not in html else 0
 
+    def request_url(self, domain: str, html: str) -> int:
+        soup = BeautifulSoup(html, "html.parser")
+        for img in soup.find_all("img"):
+            src = img.get("src", "")
+            if src and domain not in src:
+                return 1
+        return 0
 
-def preprocess_input(input_dict: Dict[str, Any]) -> np.ndarray:
-    """
-    input_dict -> DataFrame -> scaled numpy array
-    """
-    df = validate_and_build_df(input_dict)
-    X_scaled = SCALER.transform(df)
-    return X_scaled
+    # -------------------------
+    # MAIN EXTRACTOR
+    # -------------------------
 
+    def extract(self, url: str) -> dict:
+        parsed = urlparse(url)
+        domain = parsed.hostname or ""
+        html = self.fetch_html(url)
 
-def predict(
-    input_dict: Dict[str, Any],
-    model_type: str = "xgboost"
-) -> Dict[str, Any]:
-    """
-    Predict phishing vs legit.
+        features = {
+            # URL structure
+            "having_IP_Address": self.having_ip_address(url),
+            "URL_Length": self.url_length(url),
+            "Shortining_Service": self.shortening_service(url),
+            "having_At_Symbol": self.having_at_symbol(url),
+            "double_slash_redirecting": self.double_slash_redirecting(url),
+            "Prefix_Suffix": self.prefix_suffix(domain),
+            "having_Sub_Domain": self.having_sub_domain(domain),
 
-    model_type: "xgboost" | "ann"
-    returns: dict with prediction + label + probability (risk score)
-    """
-    X_scaled = preprocess_input(input_dict)
+            # Security
+            "SSLfinal_State": self.ssl_final_state(url),
+            "Domain_registeration_length": self.domain_registration_length(domain),
+            "age_of_domain": self.age_of_domain(domain),
+            "DNSRecord": self.dns_record(domain),
 
-    if model_type.lower() == "xgboost":
-        model = XGB_MODEL
-    elif model_type.lower() in ["ann", "mlp", "mlpclassifier"]:
-        model = ANN_MODEL
-        model_type = "ann"
-    else:
-        raise ValueError("model_type must be 'xgboost' or 'ann'.")
+            # HTML behavior
+            "Request_URL": self.request_url(domain, html),
+            "Submitting_to_email": self.submitting_to_email(html),
+            "Abnormal_URL": self.abnormal_url(domain, html),
+            "Iframe": self.iframe_present(html),
 
-    pred = int(model.predict(X_scaled)[0])
+            # ========= DEFAULT / UNKNOWN FEATURES =========
+            "Favicon": -1,
+            "port": -1,
+            "HTTPS_token": -1,
+            "URL_of_Anchor": -1,
+            "Links_in_tags": -1,
+            "SFH": -1,
+            "Redirect": -1,
+            "on_mouseover": -1,
+            "RightClick": -1,
+            "popUpWidnow": -1,
+            "web_traffic": -1,
+            "Page_Rank": -1,
+            "Google_Index": -1,
+            "Links_pointing_to_page": -1,
+            "Statistical_report": -1,
+        }
 
-    # Risk score: probability of class 1 (Legit). We'll also provide phishing_score.
-    legit_prob = None
-    phishing_prob = None
-    if hasattr(model, "predict_proba"):
-        proba = model.predict_proba(X_scaled)[0]  # [prob_class0, prob_class1]
-        phishing_prob = float(proba[0])  # class 0 = phishing
-        legit_prob = float(proba[1])     # class 1 = legit
+        return features
 
-    return {
-        "model": model_type,
-        "prediction": pred,                      # 1 legit, 0 phishing
-        "result_text": decode_label(pred),
-        "phishing_probability": phishing_prob,   # higher => more risky
-        "legit_probability": legit_prob
-    }
-
-
-# =========================================================
-# CLI DEMO
-# =========================================================
-
-if __name__ == "__main__":
-    # NOTE:
-    # Use same feature names as training CSV (excluding target column).
-    # Values should be numeric (mostly -1/0/1 for this dataset).
-
-    sample_input = {
-        "having_IP_Address": 0,
-        "URL_Length": 1,
-        "Shortining_Service": 0,
-        "having_At_Symbol": 0,
-        "double_slash_redirecting": 1,
-        "Prefix_Suffix": 0,
-        "having_Sub_Domain": 1,
-        "SSLfinal_State": 1,
-        "Domain_registeration_length": 1,
-        "Favicon": 1,
-        "port": 0,
-        "HTTPS_token": 0,
-        "Request_URL": 1,
-        "URL_of_Anchor": 1,
-        "Links_in_tags": 1,
-        "SFH": 1,
-        "Submitting_to_email": 0,
-        "Abnormal_URL": 0,
-        "Redirect": 1,
-        "on_mouseover": 0,
-        "RightClick": 1,
-        "popUpWidnow": 0,
-        "Iframe": 0,
-        "age_of_domain": 1,
-        "DNSRecord": 1,
-        "web_traffic": 1,
-        "Page_Rank": 1,
-        "Google_Index": 1,
-        "Links_pointing_to_page": 1,
-        "Statistical_report": 0
-    }
-
-    print("\n--- XGBoost Prediction ---")
-    print(predict(sample_input, model_type="xgboost"))
-
-    print("\n--- ANN (MLPClassifier) Prediction ---")
-    print(predict(sample_input, model_type="ann"))
+        
