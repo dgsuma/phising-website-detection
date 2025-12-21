@@ -1,3 +1,4 @@
+## command for initilizing the project
 uv init
 git branch -m master main
 uv --version
