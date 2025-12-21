@@ -60,7 +60,8 @@ docker ps -a
 
 Note: After running the container, access the application at: http://localhost:8000/
 
-## Required Secrets/Environment Variables Repository Secrets (for CI/CD/Cloud deployment):
+🔐 Required Secrets/Environment Variables
+Repository Secrets (for CI/CD/Cloud deployment):
 1. AWS_ACCESS_KEY_ID
 
 2. AWS_SECRET_ACCESS_KEY
@@ -69,5 +70,18 @@ Note: After running the container, access the application at: http://localhost:8
 
 4. ECR_REPO
 
-## Create ECR repo copy the URI and keep it to ECR_REPO
-## Create a IAM user, provide this permission: AdministratorAccess
+AWS Setup Instructions:
+## 1. Create ECR repo copy the URI and keep it to ECR_REPO
+. Create an ECR repository in AWS Console
+
+. Copy the repository URI
+
+. Use this URI as the value for ECR_REPO
+## 2. Create a IAM user:
+. Create an IAM user in AWS Console
+
+. Attach the AdministratorAccess policy
+
+. Generate access keys for the user
+
+. Use these keys for AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
