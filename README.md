@@ -13,3 +13,11 @@ python -m run_pipeline
 
 ## command for running the ml application
 uvicorn api.main:app --reload
+
+## command for configuring the mlflow in ml project
+uv pip install  mlflow
+mlflow --version
+mlflow ui
+After this mlflow ui will automatically popped up onto this url:
+127.0.0.1:5000
+Mlflow document: https://mlflow.org/docs/3.2.0/
