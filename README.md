@@ -1,10 +1,13 @@
 Project Initialization
 # Initialize project with uv
 uv init
+
+# Rename default branch to main (recommended)
 git branch -m master main
 
 # Check uv version and Python installations
 uv --version
+# List available Python versions
 uv python list
 
 # Create virtual environment with specific Python version
@@ -57,8 +60,7 @@ docker ps -a
 
 Note: After running the container, access the application at: http://localhost:8000/
 
-Required Secrets/Environment Variables
-Repository Secrets (for CI/CD/Cloud deployment):
+## Required Secrets/Environment Variables Repository Secrets (for CI/CD/Cloud deployment):
 1. AWS_ACCESS_KEY_ID
 
 2. AWS_SECRET_ACCESS_KEY
@@ -66,3 +68,6 @@ Repository Secrets (for CI/CD/Cloud deployment):
 3. AWS_REGION
 
 4. ECR_REPO
+
+## Create ECR repo copy the URI and keep it to ECR_REPO
+## Create a IAM user, provide this permission: AdministratorAccess
