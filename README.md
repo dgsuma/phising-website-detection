@@ -51,6 +51,10 @@ uv pip install -r requirements.txt
 
 ### Dependency Versions Updation 
 
+```
+python E:\6-prj\phising-website-detection\get_lib_version.py
+```
+
 ## 🤖 ML Pipeline Execution
 
 Run the training pipeline:
