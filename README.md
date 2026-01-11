@@ -49,6 +49,8 @@ env\Scripts\activate
 uv pip install -r requirements.txt
 ```
 
+### Dependency Versions Updation 
+
 ## 🤖 ML Pipeline Execution
 
 Run the training pipeline:
