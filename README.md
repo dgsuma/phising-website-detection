@@ -149,3 +149,5 @@ For CI/CD and cloud deployment, configure the following repository secrets:
 2. Attach the `AdministratorAccess` policy
 3. Generate access keys for the user
 4. Use these keys for `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
+
+
